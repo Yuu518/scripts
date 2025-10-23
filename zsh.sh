@@ -160,6 +160,34 @@ configure_starship() {
     fi
 }
 
+install_zoxide() {
+    if command -V zoxide &> /dev/null; then
+        echo "✓ zoxide already installed"
+    else
+        echo "Installing zoxide..."
+        curl -sSfL https://raw.githubusercontent.com/ajeetdsouza/zoxide/main/install.sh | sh -s -- -y > /dev/null 2>&1
+        echo "✓ zoxide installed"
+    fi
+}
+
+configure_zoxide() {
+    if [ -f "$HOME/.zshrc" ]; then
+        sed -i.tmp 's/^ZSH_THEME=.*/ZSH_THEME=""/' "$HOME/.zshrc" 2>/dev/null
+        rm -f "$HOME/.zshrc.tmp"
+        
+        if ! grep -q 'zoxide init zsh' "$HOME/.zshrc"; then
+            echo '' >> "$HOME/.zshrc"
+            echo 'eval "$(zoxide init zsh)"' >> "$HOME/.zshrc"
+            echo "✓ zoxide configured"
+        else
+            echo "✓ zoxide already configured"
+        fi
+    else
+        echo "Error: .zshrc not found"
+        exit 1
+    fi
+}
+
 install_autosuggestions() {
     PLUGIN_DIR="${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}/plugins/zsh-autosuggestions"
     
@@ -205,6 +233,11 @@ setopt HIST_FIND_NO_DUPS
 setopt HIST_REDUCE_BLANKS
 unsetopt correct_all
 
+alias ..="cd .."
+alias ...="cd ../.."
+alias ....="cd ../../.."
+alias cd="z"
+
 EOF
 
         if ! grep -q "ZSH_DISABLE_COMPFIX" "$HOME/.zshrc"; then
@@ -246,6 +279,8 @@ main() {
     ensure_zshrc
     install_starship
     configure_starship
+    install_zoxide
+    configure_zoxide
     install_autosuggestions
     configure_plugins
     optimize_performance
