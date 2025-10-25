@@ -99,8 +99,10 @@ install_zsh() {
 }
 
 install_oh_my_zsh() {
-    if [ -d "$HOME/.oh-my-zsh/oh-my-zsh.sh" ]; then
-        echo "✓ Oh-My-Zsh already installed"
+    if [ -d "$HOME/.oh-my-zsh" ]; then
+        echo "Updating Oh-My-Zsh..."
+        cd "$HOME/.oh-my-zsh" && git pull origin master > /dev/null 2>&1
+        echo "✓ Oh-My-Zsh updated"
     else
         echo "Installing Oh-My-Zsh..."
         sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended > /dev/null 2>&1
@@ -134,7 +136,9 @@ EOF
 
 install_starship() {
     if command -v starship &> /dev/null; then
-        echo "✓ Starship already installed"
+        echo "Updating Starship..."
+        curl -sS https://starship.rs/install.sh | sh -s -- -y > /dev/null 2>&1
+        echo "✓ Starship updated"
     else
         echo "Installing Starship..."
         curl -sS https://starship.rs/install.sh | sh -s -- -y > /dev/null 2>&1
@@ -161,16 +165,20 @@ configure_starship() {
 }
 
 install_zoxide() {
-    if command -V zoxide &> /dev/null; then
-        echo "✓ zoxide already installed"
+    if command -v zoxide &> /dev/null; then
+        echo "Updating zoxide..."
+        curl -sSfL https://raw.githubusercontent.com/ajeetdsouza/zoxide/main/install.sh | sh > /dev/null 2>&1
+        echo "✓ zoxide updated"
     else
         echo "Installing zoxide..."
-        curl -sSfL https://raw.githubusercontent.com/ajeetdsouza/zoxide/main/install.sh | sh -s -- -y > /dev/null 2>&1
+        curl -sSfL https://raw.githubusercontent.com/ajeetdsouza/zoxide/main/install.sh | sh > /dev/null 2>&1
         echo "✓ zoxide installed"
     fi
 }
 
 configure_zoxide() {
+    cp -f "$HOME/.local/bin/zoxide" /usr/local/bin/
+    rm -rf "$HOME/.local/bin/zoxide"
     if [ -f "$HOME/.zshrc" ]; then
         sed -i.tmp 's/^ZSH_THEME=.*/ZSH_THEME=""/' "$HOME/.zshrc" 2>/dev/null
         rm -f "$HOME/.zshrc.tmp"
@@ -178,6 +186,11 @@ configure_zoxide() {
         if ! grep -q 'zoxide init zsh' "$HOME/.zshrc"; then
             echo '' >> "$HOME/.zshrc"
             echo 'eval "$(zoxide init zsh)"' >> "$HOME/.zshrc"
+        fi
+
+        if ! grep -q 'alias cd="z"' "$HOME/.zshrc"; then
+            echo 'alias cd="z"' >> "$HOME/.zshrc"
+            echo '' >> "$HOME/.zshrc"
             echo "✓ zoxide configured"
         else
             echo "✓ zoxide already configured"
@@ -190,9 +203,11 @@ configure_zoxide() {
 
 install_autosuggestions() {
     PLUGIN_DIR="${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}/plugins/zsh-autosuggestions"
-    
+
     if [ -d "$PLUGIN_DIR" ]; then
-        echo "✓ zsh-autosuggestions already installed"
+        echo "Updating zsh-autosuggestions..."
+        cd "$PLUGIN_DIR" && git pull origin master > /dev/null 2>&1
+        echo "✓ zsh-autosuggestions updated"
     else
         echo "Installing zsh-autosuggestions..."
         git clone https://github.com/zsh-users/zsh-autosuggestions "$PLUGIN_DIR" > /dev/null 2>&1
@@ -233,11 +248,6 @@ setopt HIST_FIND_NO_DUPS
 setopt HIST_REDUCE_BLANKS
 unsetopt correct_all
 
-alias ..="cd .."
-alias ...="cd ../.."
-alias ....="cd ../../.."
-alias cd="z"
-
 EOF
 
         if ! grep -q "ZSH_DISABLE_COMPFIX" "$HOME/.zshrc"; then
@@ -270,6 +280,19 @@ set_default_shell() {
     fi
 }
 
+add_custom_alist() {
+    for alias_cmd in \
+        '# Enhancements to the cd command' \
+        'alias ..="cd .."' \
+        'alias ...="cd ../.."' \
+        'alias ....="cd ../../.."'
+    do
+        if ! grep -Fxq "$alias_cmd" "$HOME/.zshrc"; then
+            echo "$alias_cmd" >> "$HOME/.zshrc"
+        fi
+    done
+}
+ 
 main() {
     detect_os
     fix_hostname
@@ -284,6 +307,7 @@ main() {
     install_autosuggestions
     configure_plugins
     optimize_performance
+    add_custom_alist
     set_default_shell
     echo "Installation completed!"
 }
