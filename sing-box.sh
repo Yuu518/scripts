@@ -150,6 +150,7 @@ find_existing_singbox() {
 }
 
 create_config() {
+    mkdir -p "$MAIN_DIR"
     local random_port=$(generate_port)
     local random_password=$(generate_password)
     
