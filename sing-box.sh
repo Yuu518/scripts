@@ -10,6 +10,16 @@ CORE_DIR="${MAIN_DIR}/src/bin"
 CONFIG_FILE="${MAIN_DIR}/config.json"
 SERVICE_FILE="/etc/systemd/system/sing-box.service"
 GITHUB_API="https://api.github.com/repos/SagerNet/sing-box/releases/latest"
+GITHUB_PROXY=""
+
+check_china_ip() {
+    local country=""
+    country=$(curl -s --max-time 5 "https://ipinfo.io/country" 2>/dev/null || true)
+    if [ "$country" = "CN" ]; then
+        GITHUB_PROXY="https://ac.yuumi.moe/"
+        echo "检测到中国 IP，使用加速地址"
+    fi
+}
 
 print_success() {
     echo -e "${GREEN}$1${NC}"
@@ -112,7 +122,7 @@ get_latest_version() {
         return 1
     fi
 
-    echo "$version|$download_url"
+    echo "$version|${GITHUB_PROXY}${download_url}"
 }
 
 download_and_install() {
@@ -167,7 +177,7 @@ create_config() {
     "servers": [
       {
         "type": "udp",
-        "server": "1.1.1.1"
+        "server": "8.8.4.4"
       }
     ]
   },
@@ -318,6 +328,7 @@ uninstall_singbox() {
 
 main() {
     check_root
+    check_china_ip
 
     case "${1:-auto}" in
         install)

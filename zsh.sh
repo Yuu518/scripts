@@ -134,14 +134,14 @@ install_zsh() {
 }
 
 install_oh_my_zsh() {
-    local install_url="${GITHUB_PROXY}https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh"
+    local repo_url="${GITHUB_PROXY}https://github.com/ohmyzsh/ohmyzsh.git"
     if [ -d "$HOME/.oh-my-zsh" ]; then
         echo "Updating Oh-My-Zsh..."
         cd "$HOME/.oh-my-zsh" && git pull origin master > /dev/null 2>&1
         echo "Oh-My-Zsh updated"
     else
         echo "Installing Oh-My-Zsh..."
-        sh -c "$(curl -fsSL ${install_url})" "" --unattended > /dev/null 2>&1
+        git clone ${repo_url} "$HOME/.oh-my-zsh" > /dev/null 2>&1
         echo "Oh-My-Zsh installed"
     fi
 }
