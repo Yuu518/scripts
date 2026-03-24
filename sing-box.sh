@@ -1,4 +1,6 @@
-#!/bin/bash
+﻿#!/bin/bash
+
+set -u
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -17,7 +19,7 @@ check_china_ip() {
     country=$(curl -s --max-time 5 "https://ipinfo.io/country" 2>/dev/null || true)
     if [ "$country" = "CN" ]; then
         GITHUB_PROXY="https://ac.yuumi.moe/"
-        echo "检测到中国 IP，使用加速地址"
+        echo "检测到中国 IP，使用下载加速地址"
     fi
 }
 
@@ -41,7 +43,8 @@ check_root() {
 }
 
 detect_arch() {
-    local arch=$(uname -m)
+    local arch
+    arch=$(uname -m)
     case $arch in
         x86_64) echo "amd64" ;;
         aarch64|arm64) echo "arm64" ;;
@@ -70,7 +73,7 @@ install_dependencies() {
         ubuntu|debian)
             apt-get update > /dev/null 2>&1 || true
             apt-get install -y chrony curl > /dev/null 2>&1 || {
-                print_warning "部分依赖安装失败，继续..."
+                print_warning "部分依赖安装失败，继续执行"
             }
             ;;
         centos|rhel|fedora)
@@ -128,10 +131,13 @@ get_latest_version() {
 download_and_install() {
     local version_info
     version_info=$(get_latest_version) || return 1
-    local version=$(echo "$version_info" | cut -d'|' -f1)
-    local download_url=$(echo "$version_info" | cut -d'|' -f2)
+    local version
+    version=$(echo "$version_info" | cut -d'|' -f1)
+    local download_url
+    download_url=$(echo "$version_info" | cut -d'|' -f2)
 
-    local temp_dir=$(mktemp -d)
+    local temp_dir
+    temp_dir=$(mktemp -d)
     local archive_file="$temp_dir/sing-box.tar.gz"
 
     if ! curl -L "$download_url" -o "$archive_file" -s; then
@@ -143,7 +149,8 @@ download_and_install() {
     pushd "$temp_dir" > /dev/null || { rm -rf "$temp_dir"; return 1; }
     tar -xzf "$archive_file" 2>/dev/null
 
-    local extracted_dir=$(find . -type d -name "sing-box-*" | head -n1)
+    local extracted_dir
+    extracted_dir=$(find . -type d -name "sing-box-*" | head -n1)
     local sing_box_binary="$extracted_dir/sing-box"
 
     if [[ ! -f "$sing_box_binary" ]]; then
@@ -163,13 +170,35 @@ download_and_install() {
 }
 
 find_existing_singbox() {
-    find / -name "sing-box" -type f -executable 2>/dev/null | grep -v "/proc\|/sys\|/dev\|/tmp" || true
+    local output=""
+
+    if [[ -x "$CORE_DIR/sing-box" ]]; then
+        output="$CORE_DIR/sing-box"
+    fi
+
+    if command -v sing-box > /dev/null 2>&1; then
+        local cmd_path
+        cmd_path=$(command -v sing-box)
+        if [[ -x "$cmd_path" ]]; then
+            if [[ -n "$output" ]]; then
+                output="$output\n$cmd_path"
+            else
+                output="$cmd_path"
+            fi
+        fi
+    fi
+
+    if [[ -n "$output" ]]; then
+        printf '%b\n' "$output" | awk '!seen[$0]++'
+    fi
 }
 
 create_config() {
     mkdir -p "$MAIN_DIR"
-    local random_port=$(generate_port)
-    local random_password=$(generate_password)
+    local random_port
+    random_port=$(generate_port)
+    local random_password
+    random_password=$(generate_password)
 
     cat > "$CONFIG_FILE" << EOF
 {
@@ -177,7 +206,7 @@ create_config() {
     "servers": [
       {
         "type": "udp",
-        "server": "8.8.4.4"
+        "server": "8.8.8.8"
       }
     ]
   },
@@ -191,7 +220,7 @@ create_config() {
     }
   ],
   "route": {
-    "rules":[
+    "rules": [
       {
         "action": "sniff"
       }
@@ -247,10 +276,14 @@ install_singbox() {
 
     print_success "安装完成 v${version}"
 
-    local host_name=$(hostname)
-    local ip=$(curl -s https://ipinfo.io/ip)
-    local port=$(grep -oP '"listen_port":\s*\K\d+' "$CONFIG_FILE")
-    local password=$(grep -oP '"password":\s*"\K[^"]+' "$CONFIG_FILE")
+    local host_name
+    host_name=$(hostname)
+    local ip
+    ip=$(curl -s https://ipinfo.io/ip)
+    local port
+    port=$(grep -oP '"listen_port":\s*\K\d+' "$CONFIG_FILE")
+    local password
+    password=$(grep -oP '"password":\s*"\K[^"]+' "$CONFIG_FILE")
 
     echo ""
     echo "$host_name=ss,$ip,$port,encrypt-method=2022-blake3-aes-128-gcm,password=$password,udp-relay=true"
@@ -260,7 +293,8 @@ install_singbox() {
 update_singbox() {
     systemctl is-active --quiet sing-box && systemctl stop sing-box || true
 
-    local existing_files=$(find_existing_singbox)
+    local existing_files
+    existing_files=$(find_existing_singbox)
 
     if [[ -n "$existing_files" ]]; then
         echo "更新中..."
@@ -270,10 +304,13 @@ update_singbox() {
             print_error "获取版本失败"
             exit 1
         }
-        local version=$(echo "$version_info" | cut -d'|' -f1)
-        local download_url=$(echo "$version_info" | cut -d'|' -f2)
+        local version
+        version=$(echo "$version_info" | cut -d'|' -f1)
+        local download_url
+        download_url=$(echo "$version_info" | cut -d'|' -f2)
 
-        local temp_dir=$(mktemp -d)
+        local temp_dir
+        temp_dir=$(mktemp -d)
         if ! curl -L "$download_url" -o "$temp_dir/sing-box.tar.gz" -s; then
             print_error "下载失败"
             rm -rf "$temp_dir"
@@ -283,7 +320,8 @@ update_singbox() {
         pushd "$temp_dir" > /dev/null || { rm -rf "$temp_dir"; exit 1; }
         tar -xzf "sing-box.tar.gz" 2>/dev/null
 
-        local extracted_dir=$(find . -type d -name "sing-box-*" | head -n1)
+        local extracted_dir
+        extracted_dir=$(find . -type d -name "sing-box-*" | head -n1)
         local new_binary="$extracted_dir/sing-box"
 
         if [[ ! -f "$new_binary" ]]; then
@@ -293,15 +331,15 @@ update_singbox() {
             exit 1
         fi
 
-        while IFS= read -r file; do
+        printf '%s\n' "$existing_files" | while IFS= read -r file; do
             [[ -f "$file" ]] && cp -f "$new_binary" "$file" && chmod +x "$file"
-        done <<< "$existing_files"
+        done
 
         popd > /dev/null
         rm -rf "$temp_dir"
         print_success "更新完成 v${version}"
     else
-        print_warning "未找到已安装的 sing-box"
+        print_warning "未找到已安装的 sing-box，改为执行安装"
         download_and_install > /dev/null || {
             print_error "安装失败"
             exit 1
@@ -320,8 +358,13 @@ uninstall_singbox() {
     [[ -f "$SERVICE_FILE" ]] && rm -f "$SERVICE_FILE" && systemctl daemon-reload
     [[ -d "$MAIN_DIR" ]] && rm -rf "$MAIN_DIR"
 
-    local existing_files=$(find_existing_singbox)
-    [[ -n "$existing_files" ]] && echo "$existing_files" | xargs rm -f
+    local existing_files
+    existing_files=$(find_existing_singbox)
+    if [[ -n "$existing_files" ]]; then
+        printf '%s\n' "$existing_files" | while IFS= read -r file; do
+            [[ -f "$file" ]] && rm -f "$file"
+        done
+    fi
 
     print_success "卸载完成"
 }
