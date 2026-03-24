@@ -1,6 +1,6 @@
 #!/bin/bash
 
-set -e
+set -u
 
 BIN_DIR="/usr/local/bin"
 GITHUB_PROXY=""

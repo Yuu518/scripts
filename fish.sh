@@ -1,6 +1,6 @@
 #!/bin/bash
 
-set -euo pipefail
+set -u
 
 INSTALL_DIR="/usr/local/bin"
 FISH_BINARY="/usr/bin/fish"
