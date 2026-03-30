@@ -48,7 +48,7 @@ check_china_ip() {
 get_accelerated_url() {
     local url="$1"
     if check_china_ip; then
-        echo "https://ac.yuumi.moe/$url"
+        echo "https://git.apad.pro/$url"
     else
         echo "$url"
     fi

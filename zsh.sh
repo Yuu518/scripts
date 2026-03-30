@@ -30,7 +30,7 @@ check_china_ip() {
     local country=""
     country=$(curl -s --max-time 5 "https://ipinfo.io/country" 2>/dev/null || true)
     if [ "$country" = "CN" ]; then
-        GITHUB_PROXY="https://ac.yuumi.moe/"
+        GITHUB_PROXY="https://git.apad.pro/"
         echo "Detected China IP, using proxy: ${GITHUB_PROXY}"
     fi
 }
@@ -134,7 +134,7 @@ install_zsh() {
 }
 
 install_oh_my_zsh() {
-    local repo_url="${GITHUB_PROXY}https://github.com/ohmyzsh/ohmyzsh.git"
+    local repo_url="https://github.com/ohmyzsh/ohmyzsh.git"
     if [ -d "$HOME/.oh-my-zsh" ]; then
         echo "Updating Oh-My-Zsh..."
         cd "$HOME/.oh-my-zsh" && git pull origin master > /dev/null 2>&1
