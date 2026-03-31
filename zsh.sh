@@ -14,6 +14,7 @@ run_cmd() {
 }
 
 detect_os() {
+    OS="unknown"
     if [[ "$OSTYPE" == "linux-gnu"* ]]; then
         if [ -f /etc/os-release ]; then
             . /etc/os-release
@@ -21,9 +22,28 @@ detect_os() {
         fi
     elif [[ "$OSTYPE" == "darwin"* ]]; then
         OS="macos"
-    else
-        OS="unknown"
     fi
+}
+
+pkg_install() {
+    case $OS in
+        ubuntu|debian)
+            run_cmd apt-get install -y "$@" > /dev/null 2>&1
+            ;;
+        fedora|rhel|centos)
+            run_cmd dnf install -y "$@" > /dev/null 2>&1 || run_cmd yum install -y "$@" > /dev/null 2>&1
+            ;;
+        arch|manjaro)
+            run_cmd pacman -S --noconfirm "$@" > /dev/null 2>&1
+            ;;
+        macos)
+            brew install "$@" > /dev/null 2>&1
+            ;;
+        *)
+            echo "Unsupported OS. Install $* manually"
+            exit 1
+            ;;
+    esac
 }
 
 check_china_ip() {
@@ -68,40 +88,17 @@ fix_hostname() {
 
 check_and_install_dependencies() {
     local deps_needed=()
-    
+
     command -v curl &> /dev/null || deps_needed+=(curl)
     command -v git &> /dev/null || deps_needed+=(git)
     command -v tar &> /dev/null || deps_needed+=(tar)
-    
+
     if [ ${#deps_needed[@]} -gt 0 ]; then
         echo "Installing dependencies: ${deps_needed[*]}"
         case $OS in
-            ubuntu|debian)
-                run_cmd apt-get update -qq
-                for dep in "${deps_needed[@]}"; do
-                    run_cmd apt-get install -y $dep > /dev/null 2>&1
-                done
-                ;;
-            fedora|rhel|centos)
-                for dep in "${deps_needed[@]}"; do
-                    run_cmd dnf install -y $dep > /dev/null 2>&1 || run_cmd yum install -y $dep > /dev/null 2>&1
-                done
-                ;;
-            arch|manjaro)
-                for dep in "${deps_needed[@]}"; do
-                    run_cmd pacman -S --noconfirm $dep > /dev/null 2>&1
-                done
-                ;;
-            macos)
-                for dep in "${deps_needed[@]}"; do
-                    brew install $dep > /dev/null 2>&1
-                done
-                ;;
-            *)
-                echo "Unsupported OS. Install ${deps_needed[*]} manually"
-                exit 1
-                ;;
+            ubuntu|debian) run_cmd apt-get update -qq ;;
         esac
+        pkg_install "${deps_needed[@]}"
         echo "Dependencies installed"
     fi
 }
@@ -111,24 +108,7 @@ install_zsh() {
         echo "Zsh already installed"
     else
         echo "Installing Zsh..."
-        case $OS in
-            ubuntu|debian)
-                run_cmd apt-get install -y zsh > /dev/null 2>&1
-                ;;
-            fedora|rhel|centos)
-                run_cmd dnf install -y zsh > /dev/null 2>&1 || run_cmd yum install -y zsh > /dev/null 2>&1
-                ;;
-            arch|manjaro)
-                run_cmd pacman -S --noconfirm zsh > /dev/null 2>&1
-                ;;
-            macos)
-                brew install zsh > /dev/null 2>&1
-                ;;
-            *)
-                echo "Unsupported OS"
-                exit 1
-                ;;
-        esac
+        pkg_install zsh
         echo "Zsh installed"
     fi
 }
@@ -141,7 +121,7 @@ install_oh_my_zsh() {
         echo "Oh-My-Zsh updated"
     else
         echo "Installing Oh-My-Zsh..."
-        git clone ${repo_url} "$HOME/.oh-my-zsh" > /dev/null 2>&1
+        git clone --depth 1 ${repo_url} "$HOME/.oh-my-zsh" > /dev/null 2>&1
         echo "Oh-My-Zsh installed"
     fi
 }
@@ -166,55 +146,75 @@ EOF
     fi
 }
 
-install_starship() {
+github_install() {
+    local repo="$1"
+    local binary="$2"
     local arch
     arch="$(get_architecture)"
-    
-    local releases_url="https://api.github.com/repos/starship/starship/releases/latest"
+
+    local releases_url="https://api.github.com/repos/${repo}/releases/latest"
     local releases
     releases=$(curl -sL "${releases_url}")
-    
+
     if echo "${releases}" | grep -q 'API rate limit exceeded'; then
         echo "Error: GitHub API rate limit exceeded"
         exit 1
     fi
-    
+
     local download_url
     download_url=$(echo "${releases}" | grep "browser_download_url" | cut -d '"' -f 4 | grep "${arch}" | grep -v ".sha256" | head -n 1)
-    
+
     if [ -z "${download_url}" ]; then
-        echo "Error: Could not find starship package for ${arch}"
+        echo "Error: Could not find ${binary} package for ${arch}"
         exit 1
     fi
-    
+
     download_url="${GITHUB_PROXY}${download_url}"
-    
+
+    if command -v "${binary}" &> /dev/null; then
+        echo "Updating ${binary}..."
+    else
+        echo "Installing ${binary}..."
+    fi
+
     local tmp_dir
     tmp_dir=$(mktemp -d)
-    cd "${tmp_dir}"
-    
-    if command -v starship &> /dev/null; then
-        echo "Updating Starship..."
-    else
-        echo "Installing Starship..."
-    fi
-    
-    curl -sL "${download_url}" -o starship.tar.gz
-    tar -xzf starship.tar.gz
-    run_cmd cp -f starship "${BIN_DIR}/starship"
-    run_cmd chmod +x "${BIN_DIR}/starship"
-    
-    cd - > /dev/null
+
+    (
+        cd "${tmp_dir}"
+
+        if ! curl -sL "${download_url}" -o "${binary}.pkg"; then
+            echo "Error: Failed to download ${binary}"
+            exit 1
+        fi
+
+        if [ ! -s "${binary}.pkg" ]; then
+            echo "Error: Downloaded file is empty"
+            exit 1
+        fi
+
+        case "${download_url}" in
+        *.tar.gz) tar -xzf "${binary}.pkg" ;;
+        *.zip) unzip -oq "${binary}.pkg" ;;
+        esac
+
+        run_cmd cp -f "${binary}" "${BIN_DIR}/${binary}"
+        run_cmd chmod +x "${BIN_DIR}/${binary}"
+    )
+
     rm -rf "${tmp_dir}"
-    
-    echo "Starship installed to ${BIN_DIR}"
+    echo "${binary} installed to ${BIN_DIR}"
+}
+
+install_starship() {
+    github_install "starship/starship" "starship"
 }
 
 configure_starship() {
     if [ -f "$HOME/.zshrc" ]; then
         sed -i.tmp 's/^ZSH_THEME=.*/ZSH_THEME=""/' "$HOME/.zshrc" 2>/dev/null
         rm -f "$HOME/.zshrc.tmp"
-        
+
         if ! grep -q 'starship init zsh' "$HOME/.zshrc"; then
             echo '' >> "$HOME/.zshrc"
             echo 'eval "$(starship init zsh)"' >> "$HOME/.zshrc"
@@ -229,58 +229,7 @@ configure_starship() {
 }
 
 install_zoxide() {
-    local arch
-    arch="$(get_architecture)"
-    
-    local releases_url="https://api.github.com/repos/ajeetdsouza/zoxide/releases/latest"
-    local releases
-    releases=$(curl -sL "${releases_url}")
-    
-    if echo "${releases}" | grep -q 'API rate limit exceeded'; then
-        echo "Error: GitHub API rate limit exceeded"
-        exit 1
-    fi
-    
-    local download_url
-    download_url=$(echo "${releases}" | grep "browser_download_url" | cut -d '"' -f 4 | grep "${arch}" | head -n 1)
-    
-    if [ -z "${download_url}" ]; then
-        echo "Error: Could not find zoxide package for ${arch}"
-        exit 1
-    fi
-    
-    download_url="${GITHUB_PROXY}${download_url}"
-    
-    local tmp_dir
-    tmp_dir=$(mktemp -d)
-    cd "${tmp_dir}"
-    
-    if command -v zoxide &> /dev/null; then
-        echo "Updating zoxide..."
-    else
-        echo "Installing zoxide..."
-    fi
-    
-    local ext
-    case "${download_url}" in
-    *.tar.gz) ext="tar.gz" ;;
-    *.zip) ext="zip" ;;
-    esac
-    
-    curl -sL "${download_url}" -o "zoxide.${ext}"
-    
-    case "${ext}" in
-    tar.gz) tar -xzf "zoxide.${ext}" ;;
-    zip) unzip -oq "zoxide.${ext}" ;;
-    esac
-    
-    run_cmd cp -f zoxide "${BIN_DIR}/zoxide"
-    run_cmd chmod +x "${BIN_DIR}/zoxide"
-    
-    cd - > /dev/null
-    rm -rf "${tmp_dir}"
-    
-    echo "zoxide installed to ${BIN_DIR}"
+    github_install "ajeetdsouza/zoxide" "zoxide"
 }
 
 configure_zoxide() {
@@ -313,15 +262,17 @@ install_autosuggestions() {
         echo "zsh-autosuggestions updated"
     else
         echo "Installing zsh-autosuggestions..."
-        git clone ${repo_url} "$PLUGIN_DIR" > /dev/null 2>&1
+        git clone --depth 1 ${repo_url} "$PLUGIN_DIR" > /dev/null 2>&1
         echo "zsh-autosuggestions installed"
     fi
 }
 
 configure_plugins() {
-    if [ -f "$HOME/.zshrc" ]; then
-        if grep -q "^plugins=" "$HOME/.zshrc"; then
-            sed -i.tmp 's/^plugins=.*/plugins=(zsh-autosuggestions)/' "$HOME/.zshrc" 2>/dev/null
+    if [ -f "$HOME/.zshrc" ] && grep -q "^plugins=" "$HOME/.zshrc"; then
+        if grep "^plugins=" "$HOME/.zshrc" | grep -q "zsh-autosuggestions"; then
+            echo "Plugins already configured"
+        else
+            sed -i.tmp 's/^plugins=(\(.*\))/plugins=(\1 zsh-autosuggestions)/' "$HOME/.zshrc" 2>/dev/null
             rm -f "$HOME/.zshrc.tmp"
             echo "Plugins configured"
         fi
@@ -330,11 +281,24 @@ configure_plugins() {
 
 optimize_performance() {
     if [ -f "$HOME/.zshrc" ]; then
-        cat > /tmp/zsh_optimization << 'EOF'
+        if grep -q "ZSH_DISABLE_COMPFIX" "$HOME/.zshrc"; then
+            echo "Performance already optimized"
+            return
+        fi
+
+        if ! grep -q "source \$ZSH/oh-my-zsh.sh" "$HOME/.zshrc"; then
+            return
+        fi
+
+        cat > /tmp/zsh_pre_source << 'EOF'
 
 ZSH_DISABLE_COMPFIX=true
 DISABLE_AUTO_UPDATE=true
 DISABLE_UPDATE_PROMPT=true
+
+EOF
+
+        cat > /tmp/zsh_post_source << 'EOF'
 
 autoload -Uz compinit
 if [[ -n ${ZDOTDIR}/.zcompdump(#qN.mh+24) ]]; then
@@ -353,23 +317,19 @@ unsetopt correct_all
 
 EOF
 
-        if ! grep -q "ZSH_DISABLE_COMPFIX" "$HOME/.zshrc"; then
-            if grep -q "source \$ZSH/oh-my-zsh.sh" "$HOME/.zshrc"; then
-                awk '/source \$ZSH\/oh-my-zsh.sh/ && !inserted {
-                    while ((getline line < "/tmp/zsh_optimization") > 0) {
-                        print line
-                    }
-                    inserted=1
-                }
-                {print}' "$HOME/.zshrc" > "$HOME/.zshrc.new"
-                mv "$HOME/.zshrc.new" "$HOME/.zshrc"
-                echo "Performance optimized"
-            fi
-        else
-            echo "Performance already optimized"
-        fi
-        
-        rm -f /tmp/zsh_optimization
+        awk '
+        /source \$ZSH\/oh-my-zsh.sh/ && !inserted {
+            while ((getline line < "/tmp/zsh_pre_source") > 0) print line
+            print
+            while ((getline line < "/tmp/zsh_post_source") > 0) print line
+            inserted=1
+            next
+        }
+        {print}' "$HOME/.zshrc" > "$HOME/.zshrc.new"
+        mv "$HOME/.zshrc.new" "$HOME/.zshrc"
+
+        rm -f /tmp/zsh_pre_source /tmp/zsh_post_source
+        echo "Performance optimized"
     fi
 }
 

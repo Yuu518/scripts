@@ -1,4 +1,4 @@
-﻿#!/bin/bash
+#!/bin/bash
 
 set -u
 
@@ -13,6 +13,8 @@ CONFIG_FILE="${MAIN_DIR}/config.json"
 SERVICE_FILE="/etc/systemd/system/sing-box.service"
 GITHUB_API="https://api.github.com/repos/SagerNet/sing-box/releases/latest"
 GITHUB_PROXY=""
+CUSTOM_PORT=""
+CUSTOM_DNS="8.8.8.8"
 
 check_china_ip() {
     local country=""
@@ -94,14 +96,17 @@ generate_password() {
 }
 
 generate_port() {
-    local port
-    while true; do
+    local port retries=0
+    while [[ $retries -lt 100 ]]; do
         port=$(shuf -i 10000-65535 -n 1)
         if ! ss -tuln | grep -q ":$port "; then
             echo "$port"
-            break
+            return
         fi
+        retries=$((retries + 1))
     done
+    print_error "无法找到可用端口"
+    return 1
 }
 
 get_latest_version() {
@@ -128,7 +133,7 @@ get_latest_version() {
     echo "$version|${GITHUB_PROXY}${download_url}"
 }
 
-download_and_install() {
+download_binary() {
     local version_info
     version_info=$(get_latest_version) || return 1
     local version
@@ -160,11 +165,22 @@ download_and_install() {
         return 1
     fi
 
+    popd > /dev/null
+    echo "$version|$temp_dir|$temp_dir/$extracted_dir/sing-box"
+}
+
+download_and_install() {
+    local result
+    result=$(download_binary) || return 1
+    local version temp_dir binary_path
+    version=$(echo "$result" | cut -d'|' -f1)
+    temp_dir=$(echo "$result" | cut -d'|' -f2)
+    binary_path=$(echo "$result" | cut -d'|' -f3)
+
     mkdir -p "$CORE_DIR"
-    cp "$sing_box_binary" "$CORE_DIR/"
+    cp "$binary_path" "$CORE_DIR/"
     chmod +x "$CORE_DIR/sing-box"
 
-    popd > /dev/null
     rm -rf "$temp_dir"
     echo "$version"
 }
@@ -195,10 +211,14 @@ find_existing_singbox() {
 
 create_config() {
     mkdir -p "$MAIN_DIR"
-    local random_port
-    random_port=$(generate_port)
-    local random_password
-    random_password=$(generate_password)
+    local port
+    if [[ -n "$CUSTOM_PORT" ]]; then
+        port="$CUSTOM_PORT"
+    else
+        port=$(generate_port) || return 1
+    fi
+    local password
+    password=$(generate_password)
 
     cat > "$CONFIG_FILE" << EOF
 {
@@ -206,7 +226,7 @@ create_config() {
     "servers": [
       {
         "type": "udp",
-        "server": "8.8.8.8"
+        "server": "${CUSTOM_DNS}"
       }
     ]
   },
@@ -214,9 +234,9 @@ create_config() {
     {
       "type": "shadowsocks",
       "listen": "::",
-      "listen_port": ${random_port},
+      "listen_port": ${port},
       "method": "2022-blake3-aes-128-gcm",
-      "password": "${random_password}"
+      "password": "${password}"
     }
   ],
   "route": {
@@ -268,7 +288,7 @@ install_singbox() {
     local version
     version=$(download_and_install) || {
         print_error "下载安装失败"
-        exit 1
+        return 1
     }
 
     [[ ! -f "$CONFIG_FILE" ]] && create_config
@@ -291,59 +311,34 @@ install_singbox() {
 }
 
 update_singbox() {
-    systemctl is-active --quiet sing-box && systemctl stop sing-box || true
-
     local existing_files
     existing_files=$(find_existing_singbox)
 
     if [[ -n "$existing_files" ]]; then
         echo "更新中..."
 
-        local version_info
-        version_info=$(get_latest_version) || {
-            print_error "获取版本失败"
-            exit 1
-        }
-        local version
-        version=$(echo "$version_info" | cut -d'|' -f1)
-        local download_url
-        download_url=$(echo "$version_info" | cut -d'|' -f2)
-
-        local temp_dir
-        temp_dir=$(mktemp -d)
-        if ! curl -L "$download_url" -o "$temp_dir/sing-box.tar.gz" -s; then
+        local result
+        result=$(download_binary) || {
             print_error "下载失败"
-            rm -rf "$temp_dir"
-            exit 1
-        fi
+            return 1
+        }
+        local version temp_dir binary_path
+        version=$(echo "$result" | cut -d'|' -f1)
+        temp_dir=$(echo "$result" | cut -d'|' -f2)
+        binary_path=$(echo "$result" | cut -d'|' -f3)
 
-        pushd "$temp_dir" > /dev/null || { rm -rf "$temp_dir"; exit 1; }
-        tar -xzf "sing-box.tar.gz" 2>/dev/null
-
-        local extracted_dir
-        extracted_dir=$(find . -type d -name "sing-box-*" | head -n1)
-        local new_binary="$extracted_dir/sing-box"
-
-        if [[ ! -f "$new_binary" ]]; then
-            print_error "解压失败，未找到核心文件"
-            popd > /dev/null
-            rm -rf "$temp_dir"
-            exit 1
-        fi
+        systemctl is-active --quiet sing-box && systemctl stop sing-box || true
 
         printf '%s\n' "$existing_files" | while IFS= read -r file; do
-            [[ -f "$file" ]] && cp -f "$new_binary" "$file" && chmod +x "$file"
+            [[ -f "$file" ]] && cp -f "$binary_path" "$file" && chmod +x "$file"
         done
 
-        popd > /dev/null
         rm -rf "$temp_dir"
         print_success "更新完成 v${version}"
     else
         print_warning "未找到已安装的 sing-box，改为执行安装"
-        download_and_install > /dev/null || {
-            print_error "安装失败"
-            exit 1
-        }
+        install_singbox
+        return
     fi
 
     [[ -f "$SERVICE_FILE" ]] && systemctl start sing-box
@@ -370,10 +365,41 @@ uninstall_singbox() {
 }
 
 main() {
+    local action="auto"
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -p)
+                [[ -z "${2:-}" ]] && { print_error "-p 需要指定端口号"; exit 1; }
+                if [[ "$2" =~ ^[0-9]+$ ]] && [[ "$2" -ge 1 && "$2" -le 65535 ]]; then
+                    CUSTOM_PORT="$2"
+                else
+                    print_error "无效端口号: $2 (需要 1-65535)"
+                    exit 1
+                fi
+                shift 2
+                ;;
+            -dns)
+                [[ -z "${2:-}" ]] && { print_error "-dns 需要指定 DNS 服务器地址"; exit 1; }
+                CUSTOM_DNS="$2"
+                shift 2
+                ;;
+            install|update|uninstall)
+                action="$1"
+                shift
+                ;;
+            *)
+                print_error "未知参数: $1"
+                echo "用法: $0 [install|update|uninstall] [-p 端口] [-dns DNS服务器]"
+                exit 1
+                ;;
+        esac
+    done
+
     check_root
     check_china_ip
 
-    case "${1:-auto}" in
+    case "$action" in
         install)
             install_singbox
             ;;
@@ -383,7 +409,7 @@ main() {
         uninstall)
             uninstall_singbox
             ;;
-        auto|*)
+        auto)
             if [[ -f "$CORE_DIR/sing-box" ]] || [[ -n "$(find_existing_singbox)" ]]; then
                 update_singbox
             else
