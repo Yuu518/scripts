@@ -343,6 +343,27 @@ set_default_shell() {
     fi
 }
 
+configure_bracketed_paste() {
+    if [ -f "$HOME/.zshrc" ]; then
+        if ! grep -q 'zle_bracketed_paste' "$HOME/.zshrc"; then
+            cat >> "$HOME/.zshrc" << 'EOF'
+
+unset zle_bracketed_paste
+printf '\e[?2004l'
+precmd() {
+  printf '\e[?2004l'
+}
+EOF
+            echo "Bracketed paste disabled"
+        else
+            echo "Bracketed paste already configured"
+        fi
+    else
+        echo "Error: .zshrc not found"
+        exit 1
+    fi
+}
+
 add_custom_alias() {
     for alias_cmd in \
         'alias ..="cd .."' \
@@ -415,6 +436,7 @@ main() {
             configure_plugins
             optimize_performance
             add_custom_alias
+            configure_bracketed_paste
             set_default_shell
             echo "Installation completed!"
             ;;
