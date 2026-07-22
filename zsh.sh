@@ -114,7 +114,7 @@ install_zsh() {
 }
 
 install_oh_my_zsh() {
-    local repo_url="https://github.com/ohmyzsh/ohmyzsh.git"
+    local repo_url="${GITHUB_PROXY}https://github.com/ohmyzsh/ohmyzsh.git"
     if [ -d "$HOME/.oh-my-zsh" ]; then
         echo "Updating Oh-My-Zsh..."
         cd "$HOME/.oh-my-zsh" && git pull origin master > /dev/null 2>&1
