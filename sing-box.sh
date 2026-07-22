@@ -20,7 +20,7 @@ check_china_ip() {
     local country=""
     country=$(curl -s --max-time 5 "https://ipinfo.io/country" 2>/dev/null || true)
     if [ "$country" = "CN" ]; then
-        GITHUB_PROXY="https://ac.yuumi.moe/"
+        GITHUB_PROXY="https://git.apad.pro/"
         echo "检测到中国 IP，使用下载加速地址"
     fi
 }
